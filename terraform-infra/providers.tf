@@ -10,7 +10,7 @@ terraform {
 
 provider "azurerm" {
   features {}
-  subscription_id = "acec3773-00d6-4b7a-bde2-fd1d223a56a3"
+  subscription_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }
 
 # azure cli ile login olunmalı

@@ -209,10 +209,10 @@ sleep 3
 
 # Veritabanı ve kullanıcı oluştur
 echo "Creating database and user..."
-sudo -u postgres psql -c "CREATE DATABASE mkanus;"
-sudo -u postgres psql -c "CREATE USER mkanus WITH ENCRYPTED PASSWORD 'mkanus123';"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mkanus TO mkanus;"
-sudo -u postgres psql -d mkanus -c "GRANT ALL ON SCHEMA public TO mkanus;"
+sudo -u postgres psql -c "CREATE DATABASE xxxxxxx;"
+sudo -u postgres psql -c "CREATE USER xxxxxxx WITH ENCRYPTED PASSWORD 'xxxxxxx';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE xxxxxxx TO xxxxxxx;"
+sudo -u postgres psql -d xxxxxxx -c "GRANT ALL ON SCHEMA public TO xxxxxxx;"
 
 # PostgreSQL yapılandırması - listen_addresses
 echo "Configuring listen_addresses..."
