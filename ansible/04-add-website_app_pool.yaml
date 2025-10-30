@@ -1,0 +1,96 @@
+# 03-add-website_app_pool.yaml
+---
+- name: Configure IIS Website with Application Pool
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    site_name: "dotnet.mehmetkanus.com"
+    site_physical_path: "C:\\inetpub\\wwwroot\\case-app"
+    site_host_name: "dotnet.mehmetkanus.com"
+    site_port: 80
+    app_pool_name: "dotnet.mehmetkanus.com"
+    dotnet_version: ""  # .NET Core için boş string
+
+  tasks:
+    - name: Ensure physical path directory exists
+      ansible.windows.win_file:
+        path: "{{ site_physical_path }}"
+        state: directory
+      tags: setup
+
+    - name: Create Application Pool
+      community.windows.win_iis_webapppool:
+        name: "{{ app_pool_name }}"
+        state: started
+        attributes:
+          managedRuntimeVersion: "{{ dotnet_version }}"
+          managedPipelineMode: "Integrated"
+      tags: iis
+
+    - name: Stop Default Web Site
+      community.windows.win_iis_website:
+        name: "Default Web Site"
+        state: stopped
+      tags: iis
+      
+    # - name: Remove Default Web Site binding (optional)
+    #   ansible.windows.win_shell: |
+    #     Import-Module WebAdministration
+    #     Remove-WebBinding -Name "Default Web Site" -Protocol "http" -Port 80 -ErrorAction SilentlyContinue
+    #   ignore_errors: yes
+    #   tags: iis
+
+    - name: Create new IIS website
+      community.windows.win_iis_website:
+        name: "{{ site_name }}"
+        state: started
+        physical_path: "{{ site_physical_path }}"
+        application_pool: "{{ app_pool_name }}"
+        bindings:
+          - protocol: http
+            port: "{{ site_port }}"
+            ip: "*"
+            host_header: "{{ site_host_name }}"
+      tags: iis
+
+    - name: Set Application Pool to No Managed Code (.NET Core)
+      ansible.windows.win_shell: |
+        Import-Module WebAdministration
+        Set-ItemProperty "IIS:\AppPools\{{ app_pool_name }}" -Name managedRuntimeVersion -Value ""
+        Write-Host "Application Pool set to 'No Managed Code' for .NET Core"
+      tags: iis
+
+    - name: Verify website configuration
+      ansible.windows.win_shell: |
+        Import-Module WebAdministration
+        
+        $site = Get-Website -Name "{{ site_name }}"
+        $appPool = Get-WebAppPoolState -Name "{{ app_pool_name }}"
+        
+        Write-Host "=== Website Status ==="
+        Write-Host "Name: $($site.Name)"
+        Write-Host "State: $($site.State)"
+        Write-Host "Physical Path: $($site.PhysicalPath)"
+        Write-Host "Application Pool: $($site.ApplicationPool)"
+        Write-Host ""
+        Write-Host "=== Bindings ==="
+        $site.bindings.Collection | ForEach-Object {
+            Write-Host "  Protocol: $($_.protocol)"
+            Write-Host "  Binding: $($_.bindingInformation)"
+        }
+        Write-Host ""
+        Write-Host "=== Application Pool Status ==="
+        Write-Host "State: $($appPool.Value)"
+        
+        $defaultSite = Get-Website -Name "Default Web Site"
+        Write-Host ""
+        Write-Host "=== Default Web Site ==="
+        Write-Host "State: $($defaultSite.State)"
+      register: site_status
+      tags: verify
+
+    - name: Show website status
+      ansible.builtin.debug:
+        var: site_status.stdout_lines
+      tags: verify

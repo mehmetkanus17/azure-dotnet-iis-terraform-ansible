@@ -1,0 +1,58 @@
+# 05-verify_installation.yaml
+---
+- name: Verify Installed Tools on Windows Server
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+
+    - name: Check .NET SDK versions
+      ansible.windows.win_shell: dotnet --list-sdks
+      register: dotnet_sdk
+      ignore_errors: yes
+
+    - name: Show installed .NET SDKs
+      ansible.builtin.debug:
+        msg: "{{ dotnet_sdk.stdout_lines | default(['.NET SDK not found']) }}"
+
+    - name: Check .NET Runtimes
+      ansible.windows.win_shell: dotnet --list-runtimes
+      register: dotnet_runtimes
+      ignore_errors: yes
+
+    - name: Show installed .NET Runtimes
+      ansible.builtin.debug:
+        msg: "{{ dotnet_runtimes.stdout_lines | default(['.NET Runtimes not found']) }}"
+
+    - name: Check Git version
+      ansible.windows.win_shell: git --version
+      register: git_ver
+      ignore_errors: yes
+
+    - name: Show Git version
+      ansible.builtin.debug:
+        msg: "{{ git_ver.stdout | default('Git not found') }}"
+
+    - name: Check if CertifyTheWeb is installed (Registry)
+      ansible.windows.win_shell: |
+        Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
+        Where-Object { $_.DisplayName -like "*Certify The Web*" } |
+        Select-Object DisplayName, DisplayVersion
+      register: certify
+      ignore_errors: yes
+
+    - name: Show CertifyTheWeb installation info
+      ansible.builtin.debug:
+        msg: "{{ certify.stdout_lines | default(['Certify The Web not found']) }}"
+
+    - name: Check if ASP.NET Core Hosting Bundle is installed (Registry)
+      ansible.windows.win_shell: |
+        Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
+        Where-Object { $_.DisplayName -like "*ASP.NET Core*" } |
+        Select-Object DisplayName, DisplayVersion
+      register: hosting_bundle
+      ignore_errors: yes
+
+    - name: Show ASP.NET Core Hosting Bundle info
+      ansible.builtin.debug:
+        msg: "{{ hosting_bundle.stdout_lines | default(['ASP.NET Core Hosting Bundle not found']) }}"

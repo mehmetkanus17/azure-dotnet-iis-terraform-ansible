@@ -1,0 +1,119 @@
+# 02-install_dotnet_sdk_other_tools.yaml
+---
+- name: Configure Windows Web Servers for .NET App Deployment
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+    - name: Ensure Temp directory exists
+      ansible.windows.win_file:
+        path: C:\Temp
+        state: directory
+
+    # --------------------------
+    # DOWNLOAD SECTION
+    # --------------------------
+    - name: Download .NET Hosting Bundle 9.0.10
+      ansible.windows.win_get_url:
+        url: "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/9.0.10/dotnet-hosting-9.0.10-win.exe"
+        dest: "C:\\Temp\\dotnet-hosting-9.0.10-win.exe"
+        force: no  # Eklendi: Zaten varsa tekrar indirme
+      tags: download
+
+    - name: Download .NET SDK 9.0.111
+      ansible.windows.win_get_url:
+        url: "https://builds.dotnet.microsoft.com/dotnet/Sdk/9.0.111/dotnet-sdk-9.0.111-win-x64.exe"
+        dest: "C:\\Temp\\dotnet-sdk-9.0.111-win-x64.exe"
+        force: no
+      tags: download
+
+    - name: Download Git for Windows 2.51.1
+      ansible.windows.win_get_url:
+        url: "https://github.com/git-for-windows/git/releases/download/v2.51.1.windows.1/Git-2.51.1-64-bit.exe"
+        dest: "C:\\Temp\\Git-2.51.1-64-bit.exe"
+        force: no
+      tags: download
+
+    - name: Download CertifyTheWeb Setup
+      ansible.windows.win_get_url:
+        url: "https://certifytheweb.s3.amazonaws.com/downloads/archive/CertifyTheWebSetup_V6.1.11.exe"
+        dest: "C:\\Temp\\CertifyTheWebSetup_V6.1.11.exe"
+        force: no
+      tags: download
+
+    # --------------------------
+    # INSTALL SECTION
+    # --------------------------
+    - name: Install .NET Hosting Bundle 9.0.10
+      ansible.windows.win_package:
+        path: "C:\\Temp\\dotnet-hosting-9.0.10-win.exe"
+        arguments: "/quiet /norestart"
+        state: present
+        product_id: "{PRODUCT_ID}"  # Opsiyonel ama önerilen
+      register: dotnet_hosting_result
+      tags: install
+
+    - name: Install .NET SDK 9.0.111
+      ansible.windows.win_package:
+        path: "C:\\Temp\\dotnet-sdk-9.0.111-win-x64.exe"
+        arguments: "/quiet /norestart"
+        state: present
+      register: dotnet_sdk_result
+      tags: install
+
+    - name: Install Git for Windows
+      ansible.windows.win_package:
+        path: "C:\\Temp\\Git-2.51.1-64-bit.exe"
+        arguments: "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES"
+        state: present
+      register: git_result
+      tags: install
+
+    - name: Ensure Git is in PATH (both Machine and User for safety)
+      ansible.windows.win_shell: |
+        $gitPath = "C:\Program Files\Git\cmd"
+        
+        # Machine PATH
+        $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+        if ($machinePath -notlike "*$gitPath*") {
+            $machinePath = $machinePath.TrimEnd(';') + ";" + $gitPath
+            [System.Environment]::SetEnvironmentVariable("Path", $machinePath, "Machine")
+            Write-Host "Git added to Machine PATH"
+        } else {
+            Write-Host "Git already in Machine PATH"
+        }
+        
+        # User PATH
+        $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "*$gitPath*") {
+            if ([string]::IsNullOrEmpty($userPath)) {
+                $userPath = $gitPath
+            } else {
+                $userPath = $userPath.TrimEnd(';') + ";" + $gitPath
+            }
+            [System.Environment]::SetEnvironmentVariable("Path", $userPath, "User")
+            Write-Host "Git added to User PATH"
+        } else {
+            Write-Host "Git already in User PATH"
+        }
+      tags: config
+
+    - name: Verify Git installation
+      ansible.windows.win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        git --version
+      register: git_check
+      tags: verify
+
+    - name: Show Git version
+      ansible.builtin.debug:
+        msg: "{{ git_check.stdout }}"
+      tags: verify
+
+    - name: Install CertifyTheWeb
+      ansible.windows.win_package:
+        path: "C:\\Temp\\CertifyTheWebSetup_V6.1.11.exe"
+        arguments: "/VERYSILENT /NORESTART"
+        state: present
+      register: certify_result
+      tags: install

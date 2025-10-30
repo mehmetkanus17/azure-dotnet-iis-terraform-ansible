@@ -1,0 +1,83 @@
+# 03-deploy_windows_app.yaml
+---
+- name: Deploy .NET App from GitHub via PowerShell
+  hosts: windows
+
+  vars:
+    repo_url: "https://github.com/mehmetkanus17/app-devops.git"
+    repo_dir: "C:\\Users\\produser\\app-devops"
+    script_path: "C:\\Users\\produser\\update-app.ps1"
+    git_exe: "C:\\Program Files\\Git\\cmd\\git.exe"
+    site_name: "dotnet.mehmetkanus.com"
+    app_pool_name: "{{ site_name }}"
+    
+    publish_dir: "C:\\inetpub\\wwwroot\\case-app"
+    local_appsettings_path: "./appsettings.json"
+
+  tasks:
+    - name: Ensure repository parent directory exists
+      ansible.windows.win_file:
+        path: "{{ repo_dir | win_dirname }}"
+        state: directory
+
+    - name: Clone or update repository
+      ansible.windows.win_shell: |
+        $repoUrl = "{{ repo_url }}"
+        $repoDir = "{{ repo_dir }}"
+
+        if (-not (Test-Path "$repoDir\\.git")) {
+            Write-Host "Cloning repository..."
+            git clone $repoUrl $repoDir
+        } else {
+            Write-Host "Repository exists. Pulling latest changes..."
+            Set-Location $repoDir
+            git pull origin main
+        }
+
+    - name: Create PowerShell deployment script (update-app.ps1)
+      ansible.windows.win_copy:
+        dest: "{{ script_path }}"
+        content: |
+          param(
+              [string]$SiteName = "{{ site_name }}",
+              [string]$RepoDir = "{{ repo_dir }}",
+              [string]$PublishDir = "{{ publish_dir }}"
+          )
+
+          # Write-Host ">>> Starting deployment for site: $SiteName" -ForegroundColor Cyan
+          # $ErrorActionPreference = "Stop"
+
+          # Write-Host ">>> Checking tools..." -ForegroundColor Cyan
+          # & "git" --version
+          # & "dotnet" --info | Out-Null
+
+          Set-Location "C:\\Users\\produser\\app-devops\\SimpleToDoApp"
+
+          dotnet publish -c Release --self-contained false -o C:\inetpub\wwwroot\case-app /p:TargetFramework=net9.0
+
+    - name: Execute PowerShell deployment script
+      ansible.windows.win_shell: |
+        powershell.exe -ExecutionPolicy Bypass -File "{{ script_path }}"
+      register: deploy_result
+
+    - name: Copy appsettings.json from Ubuntu to Windows publish directory
+      ansible.windows.win_copy:
+        src: "{{ local_appsettings_path }}"
+        dest: "{{ publish_dir }}\\appsettings.json"
+
+    # - name: Add IIS Website with specified settings
+    #   ansible.windows.win_iis_website:
+    #     name: "{{ site_name }}"
+    #     state: started
+    #     application_pool: "{{ app_pool_name }}"
+    #     path: "{{ publish_dir }}"
+    #     bindings:
+    #       - protocol: http
+    #         ip_address: '*' # Görseldeki 'All Unassigned' için '*' kullanılır.
+    #         port: 80
+    #         host_header: "{{ site_name }}" # Görseldeki Host name alanı
+    #   tags: iis
+
+    - name: Show deployment output
+      ansible.builtin.debug:
+        var: deploy_result.stdout_lines

@@ -1,0 +1,150 @@
+# 01-install_iis_https_listener_setup.yaml
+---
+- name: Full Windows Server Configuration (WinRM + HTTPS + IIS)
+  hosts: windows
+  vars:
+    winrm_ip: "{{ winserver_host }}"
+    winrm_port_http: 5985
+    winrm_port_https: 5986
+    winrm_cert_subject: "{{ winserver_host }}"
+
+  tasks:
+    - name: Enable PowerShell Remoting
+      ansible.windows.win_shell: |
+        Enable-PSRemoting -Force
+      ignore_errors: yes
+
+    - name: Ensure WinRM service is running and set to automatic
+      ansible.windows.win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Restart WinRM service asynchronously
+      ansible.windows.win_shell: |
+        Start-Sleep -Seconds 2
+        Restart-Service WinRM -Force
+      async: 1
+      poll: 0
+      ignore_errors: yes
+
+    - name: Wait for WinRM to come back online
+      ansible.builtin.wait_for:
+        host: "{{ winserver_host }}"
+        port: 5985
+        delay: 5
+        timeout: 60
+        state: started
+      delegate_to: localhost
+
+    - name: Test WinRM connection after restart
+      ansible.windows.win_ping:
+      retries: 3
+      delay: 5
+      register: ping_result
+      until: ping_result is succeeded
+
+    - name: Install IIS Web Server
+      ansible.windows.win_feature:
+        name: Web-Server
+        state: present
+        include_management_tools: yes
+      register: iis_install
+
+    - name: Ensure IIS service is running
+      ansible.windows.win_service:
+        name: W3SVC
+        state: started
+        start_mode: auto
+      when: iis_install is succeeded
+
+    - name: Create self-signed certificate
+      win_shell: |
+        $ip = "{{ winrm_ip }}"
+        $cert = New-SelfSignedCertificate -DnsName $ip -CertStoreLocation Cert:\LocalMachine\My
+        Write-Host "Created cert with thumbprint: $($cert.Thumbprint)"
+      register: cert_result
+
+    - name: Get certificate thumbprint
+      win_shell: |
+        $ip = "{{ winrm_ip }}"
+        $thumb = (Get-ChildItem -Path Cert:\LocalMachine\My |
+          Where-Object { $_.Subject -like "*$ip*" } |
+          Select-Object -First 1 -ExpandProperty Thumbprint).Trim()
+        Write-Output $thumb
+      register: thumb
+      changed_when: false
+
+    - name: Ensure WinRM HTTPS listener exists
+      win_shell: |
+        $ip = "{{ winrm_ip }}"
+        $thumb = "{{ thumb.stdout | trim }}"
+
+        if (-not $thumb) {
+            Write-Host "No certificate thumbprint found for $ip"
+            exit 1
+        }
+
+        $existing = Get-WSManInstance -ResourceURI winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} -ErrorAction SilentlyContinue
+        
+        if ($existing) {
+            Write-Host "HTTPS listener already exists. Skipping creation."
+        } else {
+            Write-Host "No HTTPS listener found. Creating new one..."
+            
+            New-WSManInstance -ResourceURI winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} -ValueSet @{Hostname=$ip;CertificateThumbprint=$thumb}
+            
+            Write-Host "New HTTPS listener created for $ip"
+        }
+
+    # - name: Ensure WinRM HTTPS listener exists
+    #   win_shell: |
+    #     $ip = "{{ winrm_ip }}"
+    #     $thumb = "{{ thumb.stdout | trim }}"
+
+    #     if (-not $thumb) {
+    #         Write-Host "No certificate thumbprint found for $ip"
+    #         exit 1
+    #     }
+
+    #     $existing = winrm enumerate winrm/config/Listener | Select-String "Transport = HTTPS"
+    #     if ($existing) {
+    #         Write-Host "HTTPS listener already exists. Skipping creation."
+    #     } else {
+    #         Write-Host "No HTTPS listener found. Creating new one..."
+            
+    #         # winrm create komutu için doğru syntax
+    #         winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$ip`"; CertificateThumbprint=`"$thumb`"}"
+            
+    #         Write-Host "New HTTPS listener created for $ip"
+    #     }
+    #   tags: https
+
+    - name: Configure WinRM service for NTLM and encryption
+      win_shell: |
+        winrm set winrm/config/service/auth '@{Basic="false"}'
+        winrm set winrm/config/service/auth '@{NTLM="true"}'
+        winrm set winrm/config/service '@{AllowUnencrypted="false"}'
+        Write-Host "WinRM service configured for NTLM and encryption."
+
+    - name: Open firewall port for WinRM HTTPS
+      win_shell: |
+        netsh advfirewall firewall add rule name="WinRM HTTPS" dir=in action=allow protocol=TCP localport={{ winrm_port_https }}
+        Write-Host "Firewall rule added for WinRM HTTPS."
+
+    - name: Verify HTTPS listener
+      win_shell: winrm enumerate winrm/config/Listener
+      register: listener_output
+
+    - name: Display listener info
+      debug:
+        var: listener_output.stdout_lines
+
+    - name: Confirm configuration success
+      ansible.windows.win_shell: |
+        Write-Output "WinRM HTTPS and IIS setup completed successfully on $env:COMPUTERNAME"
+      register: completion_msg
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        var: completion_msg.stdout_lines
